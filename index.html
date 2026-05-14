@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KUE-CHIP2 Web Playground</title>
+    <meta name="description" content="Interactive web playground for the KUE-CHIP2 emulator. Write, assemble, and execute assembly code directly in your browser.">
+    <meta name="page:icon" content="fas fa-microchip">
+    <meta name="page:color" content="#2563eb">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --mem-zoom: 1;
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        .tab-active { color: #2563eb; font-weight: 600; border-bottom: 2px solid #2563eb; }
+        .tab-inactive { color: #64748b; border-bottom: 2px solid transparent; }
+        .tab-inactive:hover { color: #334155; border-bottom-color: #cbd5e1; }
+        
+        .mem-cell {
+            width: calc(24px * var(--mem-zoom));
+            height: calc(24px * var(--mem-zoom));
+            line-height: calc(24px * var(--mem-zoom));
+            font-size: calc(12px * var(--mem-zoom));
+            text-align: center;
+            cursor: text;
+            border-radius: 2px;
+            outline: none;
+            transition: all 0.1s;
+            display: inline-block;
+        }
+        .mem-cell:hover { background-color: #e2e8f0; }
+        .mem-cell:focus { background-color: #dbeafe; box-shadow: 0 0 0 1px #3b82f6; z-index: 10; position: relative; }
+        .mem-highlight { background-color: #fef08a !important; color: #854d0e; font-weight: bold; }
+        .mem-highlight:hover { background-color: #fde047 !important; }
+        .mem-highlight:focus { background-color: #fde047 !important; box-shadow: 0 0 0 1px #ca8a04; }
+
+        .mem-col-header { width: calc(24px * var(--mem-zoom)); font-size: calc(10px * var(--mem-zoom)); }
+        .mem-row-header { width: calc(32px * var(--mem-zoom)); font-size: calc(12px * var(--mem-zoom)); }
+
+        .reg-input {
+            width: 3.5rem;
+            text-align: right;
+            background: transparent;
+            outline: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .reg-input:hover { border-bottom-color: #cbd5e1; }
+        .reg-input:focus { border-bottom-color: #3b82f6; }
+        
+        .editable-flag {
+            cursor: pointer;
+            padding: 0 0.5rem;
+            border-radius: 0.125rem;
+            transition: all 0.1s;
+            user-select: none;
+        }
+        .editable-flag:hover { background-color: #e2e8f0; color: #2563eb; }
+
+        .resizer-h {
+            width: 6px;
+            cursor: col-resize;
+            background-color: transparent;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+            margin: 0 2px;
+            border-radius: 3px;
+        }
+        .resizer-h:hover, .resizer-h:active, .is-resizing {
+            background-color: #94a3b8;
+        }
+
+        .resizer-v {
+            height: 6px;
+            cursor: row-resize;
+            background-color: transparent;
+            transition: background-color 0.2s;
+            flex-shrink: 0;
+            margin: 2px 0;
+            border-radius: 3px;
+        }
+        .resizer-v:hover, .resizer-v:active, .is-resizing {
+            background-color: #94a3b8;
+        }
+
+        .disasm-line { padding: 2px 8px; border-radius: 2px; }
+        .disasm-pc { background-color: #dbeafe; color: #1e3a8a; font-weight: bold; }
+    </style>
+</head>
+<body class="h-screen bg-slate-100 flex flex-col overflow-hidden text-slate-800 font-sans">
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-10 select-none">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 text-white p-2 rounded-lg flex items-center justify-center shadow-sm">
+                <i class="fas fa-microchip text-lg"></i>
+            </div>
+            <h1 class="font-bold text-xl tracking-tight text-slate-800">KUE-CHIP2 <span class="text-slate-400 font-normal">Playground</span></h1>
+        </div>
+        <div class="flex gap-2 items-center">
+            <button id="btn-assemble" class="bg-blue-600 text-white px-4 py-1.5 rounded-md shadow-sm hover:bg-blue-700 font-medium transition-colors flex items-center gap-2 text-sm">
+                <i class="fas fa-hammer"></i> Assemble
+            </button>
+            <div class="w-px h-6 bg-slate-300 mx-2"></div>
+            <button id="btn-run" class="bg-emerald-600 text-white px-4 py-1.5 rounded-md shadow-sm hover:bg-emerald-700 font-medium transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-play"></i> Run
+            </button>
+            <button id="btn-step-inst" class="bg-white text-slate-700 border border-slate-300 px-3 py-1.5 rounded-md shadow-sm hover:bg-slate-50 font-medium transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-step-forward text-blue-600"></i> Step Inst
+            </button>
+            <button id="btn-step-phase" class="bg-white text-slate-700 border border-slate-300 px-3 py-1.5 rounded-md shadow-sm hover:bg-slate-50 font-medium transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-forward-step text-blue-400"></i> Step Phase
+            </button>
+            <div class="w-px h-6 bg-slate-300 mx-2"></div>
+            <button id="btn-cpu-reset" class="bg-white text-slate-700 border border-slate-300 px-3 py-1.5 rounded-md shadow-sm hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 font-medium transition-colors flex items-center gap-2 text-sm">
+                <i class="fas fa-rotate-right"></i> CPU Reset
+            </button>
+            <button id="btn-mem-reset" class="bg-white text-slate-700 border border-slate-300 px-3 py-1.5 rounded-md shadow-sm hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 font-medium transition-colors flex items-center gap-2 text-sm">
+                <i class="fas fa-eraser"></i> Mem Reset
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex p-2 min-h-0 overflow-hidden">
+        
+        <!-- Panel 1: Editor & Diagnostics -->
+        <div id="panel-left" class="flex flex-col shrink-0 min-w-[200px]" style="width: 35%;">
+            <!-- Assembly Editor -->
+            <div id="panel-editor" style="height: 70%;" class="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col min-h-[100px] overflow-hidden shrink-0">
+                <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0 select-none">
+                    <span class="font-semibold text-slate-700 text-sm"><i class="fas fa-code mr-2 text-slate-400"></i>Assembly</span>
+                </div>
+                <textarea id="editor" class="flex-1 p-3 font-mono text-sm resize-none focus:outline-none text-slate-800 leading-relaxed bg-white" spellcheck="false">
+  LD ACC, 41H
+  LD IX, 10H
+  ADD ACC, IX
+  HLT
+                </textarea>
+            </div>
+            
+            <!-- Resizer Vertical -->
+            <div id="resizer-v" class="resizer-v"></div>
+            
+            <!-- Diagnostics -->
+            <div id="panel-diag" class="flex-1 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col min-h-[100px] overflow-hidden">
+                <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 shrink-0 select-none">
+                    <span class="font-semibold text-slate-700 text-sm"><i class="fas fa-terminal mr-2 text-slate-400"></i>Diagnostics</span>
+                </div>
+                <div id="diagnostics" class="flex-1 p-3 overflow-y-auto font-mono text-xs whitespace-pre-wrap leading-relaxed text-slate-600 bg-slate-900 text-slate-300">System initialized. Memory cleared.</div>
+            </div>
+        </div>
+
+        <!-- Resizer Horizontal 1 -->
+        <div id="resizer-h1" class="resizer-h"></div>
+
+        <!-- Panel 2: Memory View -->
+        <div id="panel-mid" class="flex-1 flex flex-col min-w-[300px]">
+            <div class="flex-1 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col min-h-0 overflow-hidden">
+                <!-- Toolbar -->
+                <div class="flex px-4 pt-2 bg-slate-50 border-b border-slate-200 gap-4 shrink-0 items-center justify-between select-none">
+                    <div class="flex gap-4 items-end">
+                        <button id="tab-prog" class="pb-2 text-sm tab-active focus:outline-none transition-colors"><i class="fas fa-memory mr-1.5"></i>Prog (000-0FF)</button>
+                        <button id="tab-data" class="pb-2 text-sm tab-inactive focus:outline-none transition-colors"><i class="fas fa-database mr-1.5"></i>Data (100-1FF)</button>
+                    </div>
+                    <div class="flex gap-2 items-center mb-1">
+                        <span class="text-xs text-slate-400 italic mr-2"><i class="fas fa-pen mr-1"></i>Click cell to edit</span>
+                        <div class="flex bg-slate-200 rounded p-0.5">
+                            <button id="btn-zoom-out" class="w-6 h-6 flex items-center justify-center rounded hover:bg-white text-slate-600 transition-colors"><i class="fas fa-minus text-xs"></i></button>
+                            <button id="btn-zoom-in" class="w-6 h-6 flex items-center justify-center rounded hover:bg-white text-slate-600 transition-colors"><i class="fas fa-plus text-xs"></i></button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Container -->
+                <div class="flex-1 overflow-auto p-4 bg-white" id="mem-container">
+                    <div id="mem-prog" class="font-mono w-max"></div>
+                    <div id="mem-data" class="font-mono w-max hidden"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resizer Horizontal 2 -->
+        <div id="resizer-h2" class="resizer-h"></div>
+
+        <!-- Panel 3: CPU State & Disassembly -->
+        <div id="panel-right" class="flex flex-col gap-2 shrink-0 min-w-[260px]" style="width: 22%;">
+            <!-- CPU State -->
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col shrink-0 overflow-hidden">
+                <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0 select-none">
+                    <span class="font-semibold text-slate-700 text-sm"><i class="fas fa-microprocessor mr-2 text-slate-400"></i>CPU State</span>
+                    <span id="phase-badge" class="bg-slate-200 text-slate-700 px-2 py-0.5 rounded text-xs font-bold cursor-pointer hover:bg-slate-300 transition-colors shadow-sm" title="Click to cycle phase">P0</span>
+                </div>
+                <div class="p-4 grid grid-cols-2 gap-x-4 gap-y-2 bg-white">
+                    <!-- Regs -->
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1">
+                            <span class="text-slate-500 font-medium text-xs">PC</span>
+                            <input type="text" id="reg-pc" class="reg-input font-mono font-bold text-sm" value="00H">
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1">
+                            <span class="text-slate-500 font-medium text-xs">ACC</span>
+                            <input type="text" id="reg-acc" class="reg-input font-mono font-bold text-sm" value="00H">
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1">
+                            <span class="text-slate-500 font-medium text-xs">IX</span>
+                            <input type="text" id="reg-ix" class="reg-input font-mono font-bold text-sm" value="00H">
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1">
+                            <span class="text-slate-500 font-medium text-xs">IR</span>
+                            <input type="text" id="reg-ir" class="reg-input font-mono font-bold text-sm" value="00H">
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1">
+                            <span class="text-slate-500 font-medium text-xs">MAR</span>
+                            <input type="text" id="reg-mar" class="reg-input font-mono font-bold text-sm" value="00H">
+                        </div>
+                    </div>
+                    <!-- Flags -->
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                            <span class="text-slate-500 font-medium text-xs">CF</span>
+                            <span id="flag-cf" class="editable-flag font-mono font-bold text-sm bg-slate-100 text-slate-700">0</span>
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                            <span class="text-slate-500 font-medium text-xs">VF</span>
+                            <span id="flag-vf" class="editable-flag font-mono font-bold text-sm bg-slate-100 text-slate-700">0</span>
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                            <span class="text-slate-500 font-medium text-xs">NF</span>
+                            <span id="flag-nf" class="editable-flag font-mono font-bold text-sm bg-slate-100 text-slate-700">0</span>
+                        </div>
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                            <span class="text-slate-500 font-medium text-xs">ZF</span>
+                            <span id="flag-zf" class="editable-flag font-mono font-bold text-sm bg-slate-100 text-slate-700">0</span>
+                        </div>
+                        <div class="flex justify-between items-center mt-auto pt-1 border-t border-slate-100">
+                            <span class="text-slate-500 font-medium text-xs">HALT</span>
+                            <span id="status-halt" class="font-mono text-emerald-600 font-bold text-xs cursor-pointer px-2 py-0.5 rounded hover:bg-slate-100 transition-colors select-none">FALSE</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Disassembly -->
+            <div class="flex-1 bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col min-h-0 overflow-hidden">
+                <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 shrink-0 select-none">
+                    <span class="font-semibold text-slate-700 text-sm"><i class="fas fa-list-ol mr-2 text-slate-400"></i>Disassembly</span>
+                </div>
+                <div id="disassembly" class="flex-1 p-2 overflow-y-auto font-mono text-sm whitespace-pre-wrap leading-relaxed bg-white text-slate-700"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { assemble, disassemble, KueChip2 } from "./dist/index.js";
+
+        let cpu = null;
+        let currentZoom = 1.0;
+
+        const el = id => document.getElementById(id);
+        
+        const ui = {
+            editor: el('editor'), diagnostics: el('diagnostics'),
+            btnAssemble: el('btn-assemble'), btnRun: el('btn-run'),
+            btnStepInst: el('btn-step-inst'), btnStepPhase: el('btn-step-phase'),
+            btnCpuReset: el('btn-cpu-reset'), btnMemReset: el('btn-mem-reset'),
+            btnZoomIn: el('btn-zoom-in'), btnZoomOut: el('btn-zoom-out'),
+            disassembly: el('disassembly'), memProg: el('mem-prog'), memData: el('mem-data'), memContainer: el('mem-container'),
+            tabProg: el('tab-prog'), tabData: el('tab-data'),
+            regs: {
+                pc: el('reg-pc'), acc: el('reg-acc'), ix: el('reg-ix'), ir: el('reg-ir'), mar: el('reg-mar'),
+                cf: el('flag-cf'), vf: el('flag-vf'), nf: el('flag-nf'), zf: el('flag-zf'),
+                halt: el('status-halt'), phase: el('phase-badge')
+            }
+        };
+
+        // --- Resizer Setup ---
+        // Horizontal Resizer 1 (Left Panel)
+        const resizerH1 = el('resizer-h1');
+        const panelLeft = el('panel-left');
+        resizerH1.addEventListener('mousedown', (e) => {
+            let startX = e.clientX;
+            let startWidth = panelLeft.getBoundingClientRect().width;
+            
+            const onMouseMove = (e) => {
+                const newWidth = Math.max(200, startWidth + (e.clientX - startX));
+                panelLeft.style.width = newWidth + 'px';
+                panelLeft.style.flex = 'none';
+            };
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.body.classList.remove('select-none', 'cursor-col-resize');
+                resizerH1.classList.remove('is-resizing');
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            document.body.classList.add('select-none', 'cursor-col-resize');
+            resizerH1.classList.add('is-resizing');
+            e.preventDefault();
+        });
+
+        // Horizontal Resizer 2 (Right Panel)
+        const resizerH2 = el('resizer-h2');
+        const panelRight = el('panel-right');
+        resizerH2.addEventListener('mousedown', (e) => {
+            let startX = e.clientX;
+            let startWidth = panelRight.getBoundingClientRect().width;
+            
+            const onMouseMove = (e) => {
+                // Moving left increases width for the right panel
+                const newWidth = Math.max(260, startWidth - (e.clientX - startX));
+                panelRight.style.width = newWidth + 'px';
+                panelRight.style.flex = 'none';
+            };
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.body.classList.remove('select-none', 'cursor-col-resize');
+                resizerH2.classList.remove('is-resizing');
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            document.body.classList.add('select-none', 'cursor-col-resize');
+            resizerH2.classList.add('is-resizing');
+            e.preventDefault();
+        });
+
+        // Vertical Resizer (Left Panel: Editor / Diag)
+        const resizerV = el('resizer-v');
+        const panelEditor = el('panel-editor');
+        resizerV.addEventListener('mousedown', (e) => {
+            let startY = e.clientY;
+            let startHeight = panelEditor.getBoundingClientRect().height;
+            
+            const onMouseMove = (e) => {
+                const newHeight = Math.max(100, startHeight + (e.clientY - startY));
+                panelEditor.style.height = newHeight + 'px';
+                panelEditor.style.flex = 'none';
+            };
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                document.body.classList.remove('select-none', 'cursor-row-resize');
+                resizerV.classList.remove('is-resizing');
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            document.body.classList.add('select-none', 'cursor-row-resize');
+            resizerV.classList.add('is-resizing');
+            e.preventDefault();
+        });
+
+        // --- Zoom Setup ---
+        ui.btnZoomIn.addEventListener('click', () => {
+            currentZoom = Math.min(2.0, currentZoom + 0.1);
+            document.documentElement.style.setProperty('--mem-zoom', currentZoom);
+        });
+        ui.btnZoomOut.addEventListener('click', () => {
+            currentZoom = Math.max(0.6, currentZoom - 0.1);
+            document.documentElement.style.setProperty('--mem-zoom', currentZoom);
+        });
+
+        // --- Utilities ---
+        const hex2 = (val) => (val & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+        const hex = (val) => hex2(val) + 'H';
+        const parseHex = (str) => {
+            const val = parseInt(str.trim().replace(/H$/i, '').replace(/^0x/i, ''), 16);
+            return isNaN(val) ? 0 : val & 0xFF;
+        };
+
+        function logDiag(msg, isError = false) {
+            const prefix = isError ? '[ERROR] ' : '[INFO]  ';
+            const color = isError ? 'text-rose-400' : 'text-emerald-400';
+            ui.diagnostics.innerHTML = `<span class="${color}">${prefix}${msg}</span>`;
+            ui.diagnostics.scrollTop = ui.diagnostics.scrollHeight;
+        }
+
+        // --- Memory Rendering ---
+        function renderMemoryView(container, bytes, type, highlightAddr = -1) {
+            let html = '<div class="flex px-1 pb-1 mb-1 border-b border-slate-100">';
+            html += `<span class="mem-row-header text-slate-400 font-mono text-right pr-2 font-medium shrink-0 select-none border-r border-transparent"></span><div class="flex gap-[2px] ml-1">`;
+            for (let j = 0; j < 16; j++) {
+                html += `<span class="mem-col-header text-center text-slate-400 font-bold select-none">+${j.toString(16).toUpperCase()}</span>`;
+            }
+            html += '</div></div>';
+
+            const prefix = type === 'prog' ? '0' : '1';
+
+            for (let i = 0; i < 256; i += 16) {
+                const rowAddr = prefix + hex2(i);
+                html += `<div class="flex hover:bg-slate-50 px-1 py-[2px] rounded items-center">
+                    <span class="mem-row-header text-slate-400 font-mono text-right pr-2 font-medium shrink-0 select-none border-r border-slate-200">${rowAddr}</span>
+                    <div class="flex gap-[2px] ml-1">`;
+                for (let j = 0; j < 16; j++) {
+                    const addr = i + j;
+                    const val = hex2(bytes[addr]);
+                    const isPc = addr === highlightAddr && type === 'prog';
+                    const cls = `mem-cell font-mono ${isPc ? 'mem-highlight shadow-sm' : 'text-slate-700 bg-slate-50'}`;
+                    html += `<span class="${cls}" contenteditable="true" data-addr="${addr}" data-type="${type}" spellcheck="false">${val}</span>`;
+                }
+                html += `</div></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // --- Disassembly Rendering ---
+        function updateDisassembly() {
+            if (!cpu) return;
+            const res = disassemble(cpu.state.program);
+            const pcHex = hex2(cpu.state.pc);
+            const lines = res.text.split('\n');
+            
+            let html = '';
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                
+                const match = line.match(/^([0-9A-Fa-f]{2})H:/);
+                const isPc = match && match[1] === pcHex;
+                const formattedLine = line.replace(/^([0-9A-Fa-f]{2})H:/, '0$1H:');
+                
+                if (isPc) {
+                    html += `<div id="disasm-pc" class="disasm-line disasm-pc">${formattedLine}</div>`;
+                } else {
+                    html += `<div class="disasm-line hover:bg-slate-50">${formattedLine}</div>`;
+                }
+            }
+            ui.disassembly.innerHTML = html;
+            
+            // Auto scroll to PC
+            setTimeout(() => {
+                const pcEl = el('disasm-pc');
+                if (pcEl && ui.disassembly.contains(pcEl)) {
+                    pcEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }, 10);
+        }
+
+        function safeUpdateInput(id, val) {
+            const element = el(id);
+            if (document.activeElement !== element) element.value = val;
+        }
+
+        function updateUI() {
+            if (!cpu) return;
+            const s = cpu.state;
+            
+            // Registers
+            safeUpdateInput('reg-pc', hex(s.pc));
+            safeUpdateInput('reg-acc', hex(s.acc));
+            safeUpdateInput('reg-ix', hex(s.ix));
+            safeUpdateInput('reg-ir', hex(s.ir));
+            safeUpdateInput('reg-mar', hex(s.mar));
+
+            // Flags
+            ui.regs.cf.innerText = s.cf;
+            ui.regs.vf.innerText = s.vf;
+            ui.regs.nf.innerText = s.nf;
+            ui.regs.zf.innerText = s.zf;
+            
+            // Status
+            ui.regs.phase.innerText = `P${s.phase}`;
+            if (s.halt) {
+                ui.regs.halt.innerText = "TRUE";
+                ui.regs.halt.className = "font-mono text-rose-600 font-bold text-xs cursor-pointer px-2 py-0.5 rounded hover:bg-rose-50 transition-colors select-none";
+                ui.btnRun.disabled = true;
+                ui.btnStepInst.disabled = true;
+                ui.btnStepPhase.disabled = true;
+            } else {
+                ui.regs.halt.innerText = "FALSE";
+                ui.regs.halt.className = "font-mono text-emerald-600 font-bold text-xs cursor-pointer px-2 py-0.5 rounded hover:bg-emerald-50 transition-colors select-none";
+                ui.btnRun.disabled = false;
+                ui.btnStepInst.disabled = false;
+                ui.btnStepPhase.disabled = false;
+            }
+
+            // Memory Views
+            renderMemoryView(ui.memProg, s.program, 'prog', s.pc);
+            renderMemoryView(ui.memData, s.data, 'data', -1);
+            
+            // Disassembly Highlight
+            updateDisassembly();
+        }
+
+        // --- Initialization ---
+        cpu = new KueChip2(new Uint8Array(256));
+        cpu.loadData(new Uint8Array(256));
+        updateUI();
+
+        // --- Event Listeners : Registers (Input) ---
+        const regKeys = ['pc', 'acc', 'ix', 'ir', 'mar'];
+        regKeys.forEach(k => {
+            el(`reg-${k}`).addEventListener('change', (e) => {
+                if (!cpu) return;
+                cpu.state[k] = parseHex(e.target.value);
+                updateUI();
+            });
+        });
+
+        // --- Event Listeners : Flags (Click Toggle) ---
+        const flagKeys = ['cf', 'vf', 'nf', 'zf'];
+        flagKeys.forEach(k => {
+            el(`flag-${k}`).addEventListener('click', () => {
+                if (!cpu) return;
+                cpu.state[k] = cpu.state[k] === 1 ? 0 : 1;
+                updateUI();
+            });
+        });
+
+        // --- Event Listeners : Status (Click Toggle) ---
+        ui.regs.halt.addEventListener('click', () => {
+            if (!cpu) return;
+            cpu.state.halt = !cpu.state.halt;
+            updateUI();
+        });
+        ui.regs.phase.addEventListener('click', () => {
+            if (!cpu) return;
+            cpu.state.phase = (cpu.state.phase + 1) % 5;
+            updateUI();
+        });
+
+        // --- Event Listeners : Memory Editing ---
+        ui.memContainer.addEventListener('focusout', (e) => {
+            if (e.target.hasAttribute('data-addr')) {
+                const addr = parseInt(e.target.dataset.addr, 10);
+                const type = e.target.dataset.type;
+                const val = parseHex(e.target.innerText);
+                
+                e.target.innerText = hex2(val);
+                
+                if (type === 'prog') {
+                    if (cpu.state.program[addr] !== val) {
+                        cpu.state.program[addr] = val;
+                        updateDisassembly(); 
+                    }
+                } else {
+                    cpu.state.data[addr] = val;
+                }
+            }
+        });
+        
+        ui.memContainer.addEventListener('keydown', (e) => {
+            if (e.target.hasAttribute('data-addr') && e.key === 'Enter') {
+                e.preventDefault();
+                e.target.blur(); 
+            }
+        });
+
+        // --- Main Controls ---
+        ui.btnAssemble.addEventListener('click', () => {
+            const result = assemble(ui.editor.value);
+            
+            if (!result.ok) {
+                const msg = result.diagnostics.map(d => `Line ${d.line || '?'}: ${d.message}`).join('\n');
+                logDiag("Assembly failed:\n" + msg, true);
+                return;
+            }
+
+            cpu = new KueChip2(result.program);
+            cpu.loadData(result.data);
+            
+            let diagMsg = "Assemble successful.\n\nSymbols:\n";
+            if (result.symbols.size === 0) diagMsg += "(None)";
+            for (const [k, v] of result.symbols.entries()) diagMsg += `${k.padEnd(8)} = ${hex(v)}\n`;
+            logDiag(diagMsg);
+            
+            updateUI();
+        });
+
+        ui.btnRun.addEventListener('click', () => {
+            if (!cpu || cpu.state.halt) return;
+            const trace = cpu.run(10000);
+            updateUI();
+            let reasonStr = trace.stoppedReason;
+            if (trace.stoppedReason === 'trap' && cpu.state.trap) {
+                reasonStr += ` (${hex(cpu.state.trap.opcode)}: ${cpu.state.trap.message})`;
+            }
+            logDiag(`Execution stopped. Reason: ${reasonStr}`);
+        });
+
+        ui.btnStepInst.addEventListener('click', () => {
+            if (!cpu || cpu.state.halt) return;
+            cpu.stepInstruction();
+            updateUI();
+        });
+
+        ui.btnStepPhase.addEventListener('click', () => {
+            if (!cpu || cpu.state.halt) return;
+            cpu.stepPhase();
+            updateUI();
+        });
+
+        ui.btnCpuReset.addEventListener('click', () => {
+            if (!cpu) return;
+            cpu.reset();
+            logDiag("CPU Registers and Flags reset to default.");
+            updateUI();
+        });
+
+        ui.btnMemReset.addEventListener('click', () => {
+            if (!cpu) return;
+            cpu.state.program.fill(0);
+            cpu.state.data.fill(0);
+            logDiag("Memory cleared (Program & Data).");
+            updateUI();
+        });
+
+        // --- Tabs ---
+        const setActiveTab = (isProg) => {
+            ui.tabProg.className = isProg ? 'pb-2 text-sm tab-active focus:outline-none transition-colors' : 'pb-2 text-sm tab-inactive focus:outline-none transition-colors';
+            ui.tabData.className = !isProg ? 'pb-2 text-sm tab-active focus:outline-none transition-colors' : 'pb-2 text-sm tab-inactive focus:outline-none transition-colors';
+            
+            if (isProg) {
+                ui.memProg.classList.remove('hidden');
+                ui.memData.classList.add('hidden');
+            } else {
+                ui.memData.classList.remove('hidden');
+                ui.memProg.classList.add('hidden');
+            }
+        };
+
+        ui.tabProg.addEventListener('click', () => setActiveTab(true));
+        ui.tabData.addEventListener('click', () => setActiveTab(false));
+
+    </script>
+</body>
+</html>

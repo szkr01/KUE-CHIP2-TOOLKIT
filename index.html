@@ -43,6 +43,7 @@
         .mem-highlight { background-color: #fef08a !important; color: #854d0e; font-weight: bold; }
         .mem-highlight:hover { background-color: #fde047 !important; }
         .mem-highlight:focus { background-color: #fde047 !important; box-shadow: 0 0 0 1px #ca8a04; }
+        .mem-nonzero { color: #ec6b6b !important; }
 
         .mem-col-header { width: calc(24px * var(--mem-zoom)); font-size: calc(10px * var(--mem-zoom)); }
         .mem-row-header { width: calc(32px * var(--mem-zoom)); font-size: calc(12px * var(--mem-zoom)); }
@@ -409,7 +410,16 @@
                     const addr = i + j;
                     const val = hex2(bytes[addr]);
                     const isPc = addr === highlightAddr && type === 'prog';
-                    const cls = `mem-cell font-mono ${isPc ? 'mem-highlight shadow-sm' : 'text-slate-700 bg-slate-50'}`;
+                    const isNonZero = bytes[addr] !== 0;
+                    
+                    let cls = 'mem-cell font-mono ';
+                    if (isPc) {
+                        cls += 'mem-highlight shadow-sm';
+                    } else {
+                        cls += 'bg-slate-50 text-slate-700';
+                        if (isNonZero) cls += ' mem-nonzero';
+                    }
+                    
                     html += `<span class="${cls}" contenteditable="true" data-addr="${addr}" data-type="${type}" spellcheck="false">${val}</span>`;
                 }
                 html += `</div></div>`;
@@ -540,6 +550,12 @@
                 const val = parseHex(e.target.innerText);
                 
                 e.target.innerText = hex2(val);
+                
+                if (val !== 0) {
+                    e.target.classList.add('mem-nonzero');
+                } else {
+                    e.target.classList.remove('mem-nonzero');
+                }
                 
                 if (type === 'prog') {
                     if (cpu.state.program[addr] !== val) {

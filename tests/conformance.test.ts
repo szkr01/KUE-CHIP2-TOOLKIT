@@ -175,6 +175,37 @@ describe("assembler", () => {
     expect(result.symbols.get("x")).toBe(0x80);
   });
 
+  it("supports symbol arithmetic expressions in byte operands", () => {
+    const result = mustAssemble(`
+      BASE: EQU 90H
+      PREV: EQU BASE-1
+      LD  ACC, BASE+1
+      LD  ACC, [IX+BASE+1]
+      ADC ACC, (IX+BASE-1)
+      .data PREV
+      .byte 'B'+1
+    `);
+    expect(Array.from(result.program.slice(0, 6))).toEqual([0x62, 0x91, 0x66, 0x91, 0x97, 0x8f]);
+    expect(result.data[0x8f]).toBe(0x43);
+    expect(result.symbols.get("PREV")).toBe(0x8f);
+  });
+
+  it("rejects invalid arithmetic expressions", () => {
+    const sources = [
+      "LD ACC, UNKNOWN+1",
+      "LD ACC, DATA2-\nDATA2: EQU 90H",
+      "LD ACC, +1",
+      "LD ACC, 0-1",
+      "LD ACC, 255+1",
+    ];
+
+    for (const source of sources) {
+      const result = assemble(source);
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics.some((diagnostic) => diagnostic.severity === "error")).toBe(true);
+    }
+  });
+
   it("rejects invalid ST operands", () => {
     const result = assemble("ST ACC, 1");
     expect(result.ok).toBe(false);

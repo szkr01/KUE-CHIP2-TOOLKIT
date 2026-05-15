@@ -386,14 +386,7 @@ function parseRegister(text: string): 0 | 1 | undefined {
 
 function evalExpr(expr: string, symbols: Map<string, U8>, diagnostics: Diagnostic[], line: number): U8 {
   const trimmed = expr.trim();
-  let value: number | undefined;
-  if (/^\d+$/.test(trimmed)) value = Number.parseInt(trimmed, 10);
-  else if (/^0x[0-9a-f]+$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(2), 16);
-  else if (/^[0-9a-f]+h$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(0, -1), 16);
-  else if (/^0b[01]+$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(2), 2);
-  else if (/^[01]+b$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(0, -1), 2);
-  else if (/^'(?:\\.|[^\\'])'$/.test(trimmed)) value = charValue(trimmed);
-  else if (symbols.has(trimmed)) value = symbols.get(trimmed);
+  const value = evalAddSubExpr(trimmed, symbols);
 
   if (value === undefined || Number.isNaN(value)) {
     diagnostics.push({ severity: "error", line, message: `Unknown expression '${expr}'` });
@@ -403,6 +396,62 @@ function evalExpr(expr: string, symbols: Map<string, U8>, diagnostics: Diagnosti
     diagnostics.push({ severity: "error", line, message: `Value '${expr}' is outside 8-bit range` });
     return toU8(value);
   }
+  return value;
+}
+
+function evalAddSubExpr(expr: string, symbols: Map<string, U8>): number | undefined {
+  if (expr.length === 0) return undefined;
+
+  let value: number | undefined;
+  let op: "+" | "-" = "+";
+  let termStart = 0;
+  let inChar = false;
+  let escaped = false;
+
+  for (let i = 0; i <= expr.length; i += 1) {
+    const ch = expr[i];
+    if (i < expr.length) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "'") {
+        inChar = !inChar;
+        continue;
+      }
+      if (inChar || (ch !== "+" && ch !== "-")) continue;
+    }
+
+    const term = expr.slice(termStart, i).trim();
+    const termValue = evalExprTerm(term, symbols);
+    if (termValue === undefined) return undefined;
+    value = value === undefined ? termValue : op === "+" ? value + termValue : value - termValue;
+
+    if (i < expr.length) {
+      op = ch as "+" | "-";
+      termStart = i + 1;
+    }
+  }
+
+  if (inChar || escaped) return undefined;
+  return value;
+}
+
+function evalExprTerm(term: string, symbols: Map<string, U8>): number | undefined {
+  const trimmed = term.trim();
+  let value: number | undefined;
+  if (/^\d+$/.test(trimmed)) value = Number.parseInt(trimmed, 10);
+  else if (/^0x[0-9a-f]+$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(2), 16);
+  else if (/^[0-9a-f]+h$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(0, -1), 16);
+  else if (/^0b[01]+$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(2), 2);
+  else if (/^[01]+b$/i.test(trimmed)) value = Number.parseInt(trimmed.slice(0, -1), 2);
+  else if (/^'(?:\\.|[^\\'])'$/.test(trimmed)) value = charValue(trimmed);
+  else if (symbols.has(trimmed)) value = symbols.get(trimmed);
+
   return value;
 }
 

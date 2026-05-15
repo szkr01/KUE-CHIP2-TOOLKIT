@@ -1369,7 +1369,30 @@ LD ACC, 1  ; comment
 すべての出力値は 8bit に収まる必要がある。  
 範囲外はエラーとする。
 
-### 18.4 ラベル
+### 18.4 式
+
+アセンブラは、数値リテラル・文字リテラル・シンボルを項とする加減算式をサポートする。
+
+```text
+expr = term (("+" | "-") term)*
+term = number | char | symbol
+```
+
+式は左結合で評価する。単項 `+` / `-`、乗除算、算術グルーピングは必須ではない。
+
+```asm
+BASE: EQU 90H
+PREV: EQU BASE-1
+
+LD  ACC, BASE+1
+ADC ACC, (IX+BASE-1)
+```
+
+式は、即値 `d`、`[d]`、`(d)`、`[IX+d]`、`(IX+d)`、分岐先、`.org`、`.program`、`.data`、`.byte` / `.db`、`.equ` / `LABEL: EQU` の値に使える。
+
+すべての式評価結果は 8bit に収まる必要がある。範囲外はエラーとする。
+
+### 18.5 ラベル
 
 ラベルは現在の program address または data address に束縛される。
 
@@ -1383,7 +1406,7 @@ x:
   .byte 42
 ```
 
-### 18.5 疑似命令
+### 18.6 疑似命令
 
 推奨疑似命令:
 
@@ -1403,7 +1426,7 @@ x:
 DVD: EQU 80H
 ```
 
-### 18.6 program / data 領域
+### 18.7 program / data 領域
 
 アセンブラは少なくとも2つの出力領域を持つ。
 
@@ -1415,7 +1438,7 @@ data image   : 256 bytes
 未指定領域の初期値は `0x00` とするのが扱いやすい。  
 ただし、明示的に未初期化を区別したい場合は assemble result に initialized bitmap を持ってもよい。
 
-### 18.7 operand parsing
+### 18.8 operand parsing
 
 | assembly | mode |
 |---|---|
@@ -1426,10 +1449,12 @@ data image   : 256 bytes
 | `(10H)` | data absolute |
 | `[IX+10H]` | program indexed |
 | `(IX+10H)` | data indexed |
+| `[IX+DATA2-1]` | program indexed with expression |
+| `(IX+DATA2-1)` | data indexed with expression |
 | `[IX]` | `[IX+0]` として許可してよい |
 | `(IX)` | `(IX+0)` として許可してよい |
 
-### 18.8 canonical encoding
+### 18.9 canonical encoding
 
 HLT は既定の出力として `0F` を使う。
 
@@ -1444,7 +1469,7 @@ SUB IX,d  = AA dd
 
 `B=011` の alias はアセンブラは出力しない。
 
-### 18.9 ST の検査
+### 18.10 ST の検査
 
 次はエラーにする。
 

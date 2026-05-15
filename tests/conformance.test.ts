@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runCli } from "../src/cli.js";
 import { assemble, decodeOpcode, disassemble, KueChip2 } from "../src/index.js";
 
 function mustAssemble(source: string) {
@@ -203,3 +207,92 @@ describe("ISA and disassembler", () => {
     expect(disassemble([0x70]).lines[0]).toBe("00H: .db 70H");
   });
 });
+
+describe("CLI", () => {
+  const divisionSource = `
+DATA1: EQU 80H
+DATA2: EQU 81H
+ANS:   EQU 82H
+REM:   EQU 83H
+
+        LD  ACC, (DATA2)
+        CMP ACC, 00H
+        BZ  DIVZERO
+
+        LD  ACC, (DATA1)
+        LD  IX,  00H
+
+LOOP:   RCF
+        SBC ACC, (DATA2)
+        BC  DONE
+
+        ADD IX,  01H
+        BA  LOOP
+
+DONE:   ADD ACC, (DATA2)
+        ST  IX,  (ANS)
+        ST  ACC, (REM)
+        HLT
+
+DIVZERO:
+        LD  IX,  FFH
+        LD  ACC, (DATA1)
+        ST  IX,  (ANS)
+        ST  ACC, (REM)
+        HLT
+`;
+
+  it("prints assembled bytes for manual report checks", () => {
+    const file = tempAsm(divisionSource);
+    const io = captureIo();
+    const code = runCli(["assemble", file], io);
+
+    expect(code).toBe(0);
+    expect(io.stdoutText()).toContain("00H   65 81   LD ACC, (81H)");
+    expect(io.stdoutText()).toContain("04H   39 1A   BZ 1AH");
+    expect(io.stdoutText()).toContain("22H   0F      HLT");
+  });
+
+  it("runs a program with data initialization and dumps memory", () => {
+    const file = tempAsm(divisionSource);
+    const io = captureIo();
+    const code = runCli(["run", file, "--data", "DATA1=0DH", "--data", "DATA2=03H", "--dump-data", "DATA1:4"], io);
+
+    expect(code).toBe(0);
+    expect(io.stdoutText()).toContain("STOPPED  halt");
+    expect(io.stdoutText()).toContain("80H  0DH");
+    expect(io.stdoutText()).toContain("81H  03H");
+    expect(io.stdoutText()).toContain("82H  04H");
+    expect(io.stdoutText()).toContain("83H  01H");
+  });
+
+  it("shows the division-by-zero memory result without expectation syntax", () => {
+    const file = tempAsm(divisionSource);
+    const io = captureIo();
+    const code = runCli(["run", file, "--data", "DATA1=2AH", "--data", "DATA2=00H", "--dump-data", "DATA1:4"], io);
+
+    expect(code).toBe(0);
+    expect(io.stdoutText()).toContain("80H  2AH");
+    expect(io.stdoutText()).toContain("81H  00H");
+    expect(io.stdoutText()).toContain("82H  FFH");
+    expect(io.stdoutText()).toContain("83H  2AH");
+  });
+});
+
+function tempAsm(source: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "kue-chip2-"));
+  const file = join(dir, "program.asm");
+  writeFileSync(file, source, "utf8");
+  return file;
+}
+
+function captureIo() {
+  let stdout = "";
+  let stderr = "";
+  return {
+    stdout: { write: (chunk: string) => { stdout += chunk; return true; } },
+    stderr: { write: (chunk: string) => { stderr += chunk; return true; } },
+    stdoutText: () => stdout,
+    stderrText: () => stderr,
+  };
+}

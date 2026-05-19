@@ -1,5 +1,7 @@
 # KUE-CHIP2 Toolkit
 
+[Web プレイグラウンド](https://szkr01.github.io/KUE-CHIP2-TOOLKIT/)
+
 KUE-CHIP2 用の TypeScript 製ツールキットです。
 
 - アセンブラ

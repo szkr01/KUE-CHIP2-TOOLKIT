@@ -106,6 +106,10 @@
                 <i class="fas fa-microchip text-lg"></i>
             </div>
             <h1 class="font-bold text-xl tracking-tight text-slate-800">KUE-CHIP2 <span class="text-slate-400 font-normal">Playground</span></h1>
+            <div class="flex items-center rounded-md border border-slate-300 bg-slate-50 p-0.5" aria-label="KUE-CHIP2 selector">
+                <button id="machine-1" class="w-6 h-6 rounded text-xs font-semibold bg-blue-600 text-white" aria-pressed="true">1</button>
+                <button id="machine-2" class="w-6 h-6 rounded text-xs font-semibold text-slate-500 hover:bg-white" aria-pressed="false">2</button>
+            </div>
         </div>
         <div class="flex gap-2 items-center">
             <button id="btn-assemble" class="bg-blue-600 text-white px-4 py-1.5 rounded-md shadow-sm hover:bg-blue-700 font-medium transition-colors flex items-center gap-2 text-sm">
@@ -266,12 +270,16 @@
         import { assemble, disassemble, KueChip2 } from "./dist/index.js";
 
         let cpu = null;
+        let cpus = [];
+        let activeMachine = 0;
+        let machineViews = [];
         let currentZoom = 1.0;
 
         const el = id => document.getElementById(id);
         
         const ui = {
             editor: el('editor'), diagnostics: el('diagnostics'),
+            machine1: el('machine-1'), machine2: el('machine-2'),
             btnAssemble: el('btn-assemble'), btnRun: el('btn-run'),
             btnStepInst: el('btn-step-inst'), btnStepPhase: el('btn-step-phase'),
             btnCpuReset: el('btn-cpu-reset'), btnMemReset: el('btn-mem-reset'),
@@ -390,6 +398,33 @@
             ui.diagnostics.scrollTop = ui.diagnostics.scrollHeight;
         }
 
+        function saveMachineView() {
+            machineViews[activeMachine].editor = ui.editor.value;
+            machineViews[activeMachine].diagnostics = ui.diagnostics.innerHTML;
+        }
+
+        function updateMachineButtons() {
+            const buttons = [ui.machine1, ui.machine2];
+            buttons.forEach((button, index) => {
+                const active = index === activeMachine;
+                button.className = active
+                    ? 'w-6 h-6 rounded text-xs font-semibold bg-blue-600 text-white'
+                    : 'w-6 h-6 rounded text-xs font-semibold text-slate-500 hover:bg-white';
+                button.setAttribute('aria-pressed', String(active));
+            });
+        }
+
+        function switchMachine(index) {
+            if (index === activeMachine) return;
+            saveMachineView();
+            activeMachine = index;
+            cpu = cpus[activeMachine];
+            ui.editor.value = machineViews[activeMachine].editor;
+            ui.diagnostics.innerHTML = machineViews[activeMachine].diagnostics;
+            updateMachineButtons();
+            updateUI();
+        }
+
         // --- Memory Rendering ---
         function renderMemoryView(container, bytes, type, highlightAddr = -1) {
             let html = '<div class="flex px-1 pb-1 mb-1 border-b border-slate-100">';
@@ -506,8 +541,19 @@
         }
 
         // --- Initialization ---
-        cpu = new KueChip2(new Uint8Array(256));
-        cpu.loadData(new Uint8Array(256));
+        const initialEditor = ui.editor.value;
+        const initialDiagnostics = ui.diagnostics.innerHTML;
+        cpus = [0, 1].map(() => {
+            const instance = new KueChip2(new Uint8Array(256));
+            instance.loadData(new Uint8Array(256));
+            return instance;
+        });
+        machineViews = [0, 1].map(() => ({
+            editor: initialEditor,
+            diagnostics: initialDiagnostics
+        }));
+        cpu = cpus[0];
+        updateMachineButtons();
         updateUI();
 
         // --- Event Listeners : Registers (Input) ---
@@ -585,7 +631,7 @@
                 return;
             }
 
-            cpu = new KueChip2(result.program);
+            cpu = cpus[activeMachine] = new KueChip2(result.program);
             cpu.loadData(result.data);
             
             let diagMsg = "Assemble successful.\n\nSymbols:\n";
@@ -633,6 +679,9 @@
             logDiag("Memory cleared (Program & Data).");
             updateUI();
         });
+
+        ui.machine1.addEventListener('click', () => switchMachine(0));
+        ui.machine2.addEventListener('click', () => switchMachine(1));
 
         // --- Tabs ---
         const setActiveTab = (isProg) => {
